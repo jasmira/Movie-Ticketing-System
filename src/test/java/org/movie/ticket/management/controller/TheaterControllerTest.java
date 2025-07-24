@@ -1,0 +1,95 @@
+package org.movie.ticket.management.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.movie.ticket.management.config.GlobalExceptionHandler;
+import org.movie.ticket.management.dto.ShowDTO;
+import org.movie.ticket.management.entity.Show;
+import org.movie.ticket.management.exception.TheaterNotFoundException;
+import org.movie.ticket.management.mapper.ShowMapper;
+import org.movie.ticket.management.service.TheaterService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
+
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@WebMvcTest(TheaterController.class)
+@Import({GlobalExceptionHandler.class})
+@WithMockUser(roles = "USER")
+public class TheaterControllerTest {
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockBean
+    private TheaterService theaterService;
+
+    @MockBean
+    private ShowMapper showMapper;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @TestConfiguration
+    static class TestSecurityConfig {
+        @Bean
+        public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+            http
+                    .csrf(AbstractHttpConfigurer::disable) // disable CSRF protection
+                    .authorizeHttpRequests(auth -> auth
+                            .requestMatchers("/api/auth/login", "/api/users", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                            .anyRequest().authenticated()
+                    );
+            return http.build();
+        }
+    }
+
+    @Test
+    void testGetShowListForTheater_ReturnsShowDTOList() throws Exception {
+        // Arrange
+        Long theaterId = 1L;
+
+        Show mockShow = new Show();
+        mockShow.setShowId(100L);
+
+        ShowDTO mockDTO = new ShowDTO();
+        mockDTO.setShowId(100L);
+
+        when(theaterService.getShowListForTheater(theaterId)).thenReturn(List.of(mockShow));
+        when(showMapper.convertToDTO(mockShow)).thenReturn(mockDTO);
+
+        // Act + Assert
+        mockMvc.perform(get("/api/theaters/{id}/shows", theaterId)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].showId").value(100));
+    }
+
+    @Test
+    void testGetShowListForTheater_TheaterNotFound_Returns404() throws Exception {
+        // Arrange
+        Long theaterId = 99L;
+
+        when(theaterService.getShowListForTheater(theaterId))
+                .thenThrow(new TheaterNotFoundException("Theater with ID: 99 not found"));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/theaters/{id}/shows", theaterId)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string("Theater with ID: 99 not found"));
+    }
+}
